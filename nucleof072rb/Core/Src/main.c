@@ -19,6 +19,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "spi.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -44,18 +46,45 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+  uint16_t adc_val = 0;
+  uint32_t pwm_pulse = 1000; // initial pulse width (1 ms)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+  uint16_t Read_ADC_SPI(void);
+  void Set_PWM_Pulse(uint32_t pulse);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+  // Reads 10-bit ADC data from MCP3008 on channel 0 via SPI1
+  uint16_t Read_ADC_SPI(void)
+  {
+      uint8_t txData[3] = {0x01, 0x80, 0x00}; // Start bit + single-ended + channel 0 bits
+      uint8_t rxData[3] = {0};
+      uint16_t adcResult = 0;
 
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); // CS LOW to start communication
+
+      HAL_SPI_TransmitReceive(&hspi1, txData, rxData, 3, HAL_MAX_DELAY);
+
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // CS HIGH to finish communication
+
+      adcResult = ((rxData[1] & 0x03) << 8) | rxData[2]; // Extract 10-bit result
+
+      return adcResult;
+  }
+
+  // Sets PWM pulse width on TIM1 Channel 1
+  void Set_PWM_Pulse(uint32_t pulse)
+  {
+      if (pulse < 1000) pulse = 1000;
+      if (pulse > 2000) pulse = 2000;
+
+      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pulse);
+  }
 /* USER CODE END 0 */
 
 /**
@@ -87,6 +116,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_SPI1_Init();
+  MX_TIM1_Init();
+
+  /* Start PWM output on TIM1 Channel 1 */
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -95,6 +130,18 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* Read ADC data */
+	  	adc_val = Read_ADC_SPI();
+
+	  	/* Map ADC (0-1023) to PWM pulse width (1000-2000) */
+	  	pwm_pulse = 1000 + ((uint32_t)adc_val * 1000) / 1023;
+
+	  	/* Update PWM pulse */
+	  	Set_PWM_Pulse(pwm_pulse);
+
+	  	/* Delay to avoid ADC overload */
+	      HAL_Delay(10);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
